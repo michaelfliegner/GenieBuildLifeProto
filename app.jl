@@ -4,7 +4,6 @@ using GenieFramework
 using BitemporalPostgres, JSON, LifeInsuranceDataModel, LifeInsuranceProduct, SearchLight, TimeZones, ToStruct
 @genietools
 
-PERSISTED_cs::Dict{String,Any} = Dict{String,Any}("loaded" => "false")
 
 @handlers begin
   @out activetxn::Bool = false
@@ -13,6 +12,7 @@ PERSISTED_cs::Dict{String,Any} = Dict{String,Any}("loaded" => "false")
   @out contract_ids::Dict{Int64,Int64} = Dict{Int64,Int64}()
   @out current_contract::Contract = Contract()
   @in selected_contract_idx::Integer = -1
+  @out current_workflow::Workflow = Workflow()
   @out partners::Vector{Partner} = []
   @out current_partner::Partner = Partner()
   @in selected_partner_idx::Integer = -1
@@ -29,6 +29,7 @@ PERSISTED_cs::Dict{String,Any} = Dict{String,Any}("loaded" => "false")
   @out ref_time::ZonedDateTime = now(tz"Africa/Porto-Novo")
   @out histo::Vector{Dict{String,Any}} = Dict{String,Any}[]
   @in cs::Dict{String,Any} = Dict{String,Any}("loaded" => "false")
+  @out PERSISTED_cs::Dict{String,Any} = Dict{String,Any}("loaded" => "false")
   @out ps::Dict{String,Any} = Dict{String,Any}("loaded" => "false")
   @out prs::Dict{String,Any} = Dict{String,Any}("loaded" => "false")
   @in selected_product_part_idx::Integer = 0
@@ -39,13 +40,15 @@ PERSISTED_cs::Dict{String,Any} = Dict{String,Any}("loaded" => "false")
   @in selected_product::Integer = 0
   @in show_tariff_item_partners::Bool = false
   @in show_tariff_items::Bool = false
-  @out rolesContractPartner::Vector{Dict{String,Any}} = load_role(LifeInsuranceDataModel.ContractPartnerRole)
-  @out rolesTariffItem::Vector{Dict{String,Any}} = load_role(LifeInsuranceDataModel.TariffItemRole)
-  @out rolesTariffItemPartner::Vector{Dict{String,Any}} = load_role(LifeInsuranceDataModel.TariffItemPartnerRole)
-
+  @out rolesContractPartner::Vector{Dict{String,Any}} = []
+  @out rolesTariffItem::Vector{Dict{String,Any}} = []
+  @out rolesTariffItemPartner::Vector{Dict{String,Any}} = []
 
   @onchange isready begin
     LifeInsuranceDataModel.connect()
+    rolesContractPartner = load_role(LifeInsuranceDataModel.ContractPartnerRole)
+    rolesTariffItem = load_role(LifeInsuranceDataModel.TariffItemRole)
+    rolesTariffItemPartner = load_role(LifeInsuranceDataModel.TariffItemPartnerRole)
     @show rolesContractPartner
     @show rolesTariffItem
     @show rolesTariffItemPartner
@@ -72,21 +75,24 @@ PERSISTED_cs::Dict{String,Any} = Dict{String,Any}("loaded" => "false")
       try
         current_contract = contracts[selected_contract_idx+1]
         activetxn = contract_ids[current_contract.id.value] == 0 ? true : false
+        @show activetxn
+        current_workflow = find(Workflow, SQLWhereExpression("ref_history=?", current_contract.ref_history))[1]
         histo = map(convert, LifeInsuranceDataModel.history_forest(current_contract.ref_history.value).shadowed)
         cs = JSON.parse(JSON.json(LifeInsuranceDataModel.csection(current_contract.id.value, now(tz"Europe/Warsaw"), now(tz"Europe/Warsaw"), activetxn ? 1 : 0)))
         cs["loaded"] = "true"
         PERSISTED_cs = copy(cs)
-        if (cs["product_items"] != [])
+        if cs["product_items"] != []
           ti = cs["product_items"][1]["tariff_items"][1]
           tistruct = ToStruct.tostruct(LifeInsuranceDataModel.TariffItemSection, ti)
           LifeInsuranceProduct.calculate!(tistruct)
           cs["product_items"][1]["tariff_items"][1] = JSON.parse(JSON.json(tistruct))
-          selected_contract_idx = -1
           @show cs["loaded"]
           @show ti
         end
         tab = "csection"
+        selected_contract_idx = -1
         @info "contract loaded"
+        @show PERSISTED_cs
       catch err
         println("wassis shief gegangen ")
         @error "ERROR: " exception = (err, catch_backtrace())
@@ -181,10 +187,27 @@ PERSISTED_cs::Dict{String,Any} = Dict{String,Any}("loaded" => "false")
     end
     if command == "add contractpartner"
       @show command
+      @show cs["partner_refs"]
+      append!(cs["partner_refs"], [ContractPartnerReference()])
+      @show cs["partner_refs"]
+      @info "anyahl prefs= "
+      @info length(cs["partner_refs"])
+      push!(__model__)
       command = ""
     end
+
     if command == "persist"
       @show command
+      deltas = compareModelStateContract(PERSISTED_cs, cs)
+      @show deltas
+      @show current_contract
+
+      for delta in deltas
+        println(delta)
+        prev = delta[1]
+        curr = delta[2]
+        update_component!(prev, curr, current_workflow)
+      end
       command = ""
     end
     if command == "commit"
