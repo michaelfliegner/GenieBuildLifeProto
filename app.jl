@@ -1,9 +1,10 @@
 module App
 
 using GenieFramework
-using BitemporalPostgres, JSON, LifeInsuranceDataModel, LifeInsuranceProduct, SearchLight, TimeZones, ToStruct
+using BitemporalPostgres, DataStructures, JSON, LifeInsuranceDataModel, LifeInsuranceProduct, SearchLight, TimeZones, ToStruct
 @genietools
 
+CS_UNDO = Stack{Dict{String,Any}}()
 
 @handlers begin
   @out activetxn::Bool = false
@@ -24,12 +25,10 @@ using BitemporalPostgres, JSON, LifeInsuranceDataModel, LifeInsuranceProduct, Se
   @in selected_productitem_idx::Integer = -1
   @in selected_version::String = ""
   @out current_version::Integer = 0
-
-  @out txn_time::ZonedDateTime = now(tz"Africa/Porto-Novo")
-  @out ref_time::ZonedDateTime = now(tz"Africa/Porto-Novo")
+  @out txn_time::ZonedDateTime = now(tz"UTC")
+  @out ref_time::ZonedDateTime = now(tz"UTC")
   @out histo::Vector{Dict{String,Any}} = Dict{String,Any}[]
   @in cs::Dict{String,Any} = Dict{String,Any}("loaded" => "false")
-  @out PERSISTED_cs::Dict{String,Any} = Dict{String,Any}("loaded" => "false")
   @out ps::Dict{String,Any} = Dict{String,Any}("loaded" => "false")
   @out prs::Dict{String,Any} = Dict{String,Any}("loaded" => "false")
   @in selected_product_part_idx::Integer = 0
@@ -52,19 +51,11 @@ using BitemporalPostgres, JSON, LifeInsuranceDataModel, LifeInsuranceProduct, Se
     @show rolesContractPartner
     @show rolesTariffItem
     @show rolesTariffItemPartner
-
-    @show "App is loaded"
-    contracts = LifeInsuranceDataModel.get_contracts()
-    let df = SearchLight.query("select distinct c.id, w.is_committed from contracts c join histories h on c.ref_history = h.id join workflows w on w.ref_history = h.id ")
-      contract_ids = Dict(Pair.(df.id, df.is_committed))
-    end
-    tab = "contracts"
     cs["loaded"] = "false"
     prs = Dict{String,Any}("loaded" => "false")
     ps = Dict{String,Any}("loaded" => "false")
-
-    @show contract_ids
-    @info "contractsModel pushed"
+    @show "App is loaded"
+    tab = "contracts"
   end
 
   @onchange selected_contract_idx begin
@@ -78,21 +69,22 @@ using BitemporalPostgres, JSON, LifeInsuranceDataModel, LifeInsuranceProduct, Se
         @show activetxn
         current_workflow = find(Workflow, SQLWhereExpression("ref_history=?", current_contract.ref_history))[1]
         histo = map(convert, LifeInsuranceDataModel.history_forest(current_contract.ref_history.value).shadowed)
-        cs = JSON.parse(JSON.json(LifeInsuranceDataModel.csection(current_contract.id.value, now(tz"Europe/Warsaw"), now(tz"Europe/Warsaw"), activetxn ? 1 : 0)))
+        cs = JSON.parse(JSON.json(LifeInsuranceDataModel.csection(current_contract.id.value, now(tz"UTC"), now(tz"UTC"), activetxn ? 1 : 0)))
         cs["loaded"] = "true"
-        PERSISTED_cs = copy(cs)
+        push!(CS_UNDO, copy(cs))
         if cs["product_items"] != []
           ti = cs["product_items"][1]["tariff_items"][1]
           tistruct = ToStruct.tostruct(LifeInsuranceDataModel.TariffItemSection, ti)
           LifeInsuranceProduct.calculate!(tistruct)
           cs["product_items"][1]["tariff_items"][1] = JSON.parse(JSON.json(tistruct))
+          push!(__model__)
+          @info("calculated")
           @show cs["loaded"]
-          @show ti
+          @info (cs["product_items"][1]["tariff_items"][1]["tariff_ref"]["rev"]["annuity_immediate"])
         end
         tab = "csection"
         selected_contract_idx = -1
         @info "contract loaded"
-        @show PERSISTED_cs
       catch err
         println("wassis shief gegangen ")
         @error "ERROR: " exception = (err, catch_backtrace())
@@ -109,7 +101,7 @@ using BitemporalPostgres, JSON, LifeInsuranceDataModel, LifeInsuranceProduct, Se
       try
         current_partner = partners[selected_partner_idx+1]
         # histo = map(convert, LifeInsuranceDataModel.history_forest(current_contract.ref_history.value).shadowed)
-        ps = JSON.parse(JSON.json(LifeInsuranceDataModel.psection(current_partner.id.value, now(tz"Europe/Warsaw"), now(tz"Europe/Warsaw"), activetxn ? 1 : 0)))
+        ps = JSON.parse(JSON.json(LifeInsuranceDataModel.psection(current_partner.id.value, now(tz"UTC"), now(tz"UTC"), activetxn ? 1 : 0)))
         ps["loaded"] = "true"
         selected_partner_idx = -1
         ps["loaded"] = "true"
@@ -132,7 +124,7 @@ using BitemporalPostgres, JSON, LifeInsuranceDataModel, LifeInsuranceProduct, Se
       try
         current_product = products[selected_product_idx+1]
         # histo = map(convert, LifeInsuranceDataModel.history_forest(current_contract.ref_history.value).shadowed)
-        prs = JSON.parse(JSON.json(LifeInsuranceDataModel.prsection(current_product.id.value, now(tz"Europe/Warsaw"), now(tz"Europe/Warsaw"), activetxn ? 1 : 0)))
+        prs = JSON.parse(JSON.json(LifeInsuranceDataModel.prsection(current_product.id.value, now(tz"UTC"), now(tz"UTC"), activetxn ? 1 : 0)))
         selected_product_idx = -1
         prs["loaded"] = "true"
         @show prs["loaded"]
@@ -149,7 +141,6 @@ using BitemporalPostgres, JSON, LifeInsuranceDataModel, LifeInsuranceProduct, Se
   @onchange selected_contractpartner_idx begin
     if selected_contractpartner_idx != -1
       @show selected_contractpartner_idx
-      selected_contractpartner_idx = -1
     end
   end
 
@@ -166,57 +157,102 @@ using BitemporalPostgres, JSON, LifeInsuranceDataModel, LifeInsuranceProduct, Se
   end
 
   @onchange command begin
-    @show command
-    if command == "create contract"
-      activetxn = true
-      w1 = Workflow(
-        type_of_entity="Contract",
-        tsw_validfrom=ZonedDateTime(2014, 5, 30, 21, 0, 1, 1, tz"Africa/Porto-Novo"),
-      )
-      create_entity!(w1)
-      c = Contract()
-      cr = ContractRevision(description="contract creation properties")
-      create_component!(c, cr, w1)
+    try
       @show command
 
-      command = ""
-    end
-    if command == "add productitem"
-      @show command
-      command = ""
-    end
-    if command == "add contractpartner"
-      @show command
-      @show cs["partner_refs"]
-      append!(cs["partner_refs"], [ContractPartnerReference()])
-      @show cs["partner_refs"]
-      @info "anyahl prefs= "
-      @info length(cs["partner_refs"])
-      push!(__model__)
-      command = ""
-    end
-
-    if command == "persist"
-      @show command
-      deltas = compareModelStateContract(PERSISTED_cs, cs)
-      @show deltas
-      @show current_contract
-
-      for delta in deltas
-        println(delta)
-        prev = delta[1]
-        curr = delta[2]
-        update_component!(prev, curr, current_workflow)
+      if command == "add productitem"
+        @show command
+        command = ""
       end
-      command = ""
-    end
-    if command == "commit"
-      @show command
-      command = ""
-    end
-    if command == "new contract"
-      @show command
-      command = ""
+      if command == "add contractpartner"
+        @show command
+        @show cs["partner_refs"]
+
+        cprj = JSON.parse(JSON.json(ContractPartnerReference(rev=ContractPartnerRefRevision(), ref=PartnerSection())))
+        append!(cs["partner_refs"], [cprj])
+        @show cs["partner_refs"]
+        @info "anzahl prefs= "
+        @info length(cs["partner_refs"])
+        push!(__model__)
+        command = ""
+      end
+      if command == "create contract"
+        activetxn = true
+        w1 = Workflow(
+          type_of_entity="Contract",
+          tsw_validfrom=ZonedDateTime(2014, 5, 30, 21, 0, 1, 1, tz"UTC"),
+        )
+        create_entity!(w1)
+        c = Contract()
+        cr = ContractRevision(description="contract creation properties")
+        create_component!(c, cr, w1)
+        @show command
+        command = ""
+        tab = ""
+        tab = "contracts"
+      end
+      if startswith(command, "delete_contract_partner")
+        @show command
+        @show first(CS_UNDO)["partner_refs"]
+        idx = parse(Int64, chopprefix(command, "delete_contract_partner"))
+        deleteat!(cs["partner_refs"], idx + 1)
+        @info "afer delete cp"
+        @show first(CS_UNDO)["partner_refs"]
+        push!(__model__)
+      end
+
+      if command == "pop"
+        @info "before pop"
+        @show first(CS_UNDO)["partner_refs"]
+        cs = pop!(CS_UNDO)
+        push!(__model__)
+        @info "after pop"
+        @show cs["partner_refs"]
+      end
+
+      if command == "push"
+        push!(CS_UNDO, deepcopy(cs))
+        @show first(CS_UNDO)["partner_refs"]
+      end
+
+      if command == "persist"
+        @show command
+        @show cs_undo
+        deltas = compareModelStateContract(cs_undo, cs)
+        @show deltas
+        @show current_contract
+
+        for delta in deltas
+          println(delta)
+          prev = delta[1]
+          curr = delta[2]
+          if curr.id != DbId() # db identity has been set 
+            update_component!(prev, curr, current_workflow)
+          elseif curr.id == DbId()
+            LifeInsuranceDataModel.ty
+            create_component!(curr, current_workflow)
+          end
+        end
+        command = ""
+      end
+      if command == "commit"
+        @show command
+        command = ""
+      end
+      if command == "rollback"
+        @show command
+        @show current_workflow
+        rollback_workflow!(current_workflow)
+        command = ""
+      end
+      if command == "new contract"
+        @show command
+        command = ""
+      end
+    catch err
+      println("wassis shief gegangen ")
+
+      @error "ERROR: " exception = (err, catch_backtrace())
     end
   end
 
@@ -254,7 +290,18 @@ using BitemporalPostgres, JSON, LifeInsuranceDataModel, LifeInsuranceProduct, Se
   end
 
   @onchange tab begin
+
     @show tab
+
+    if tab == "contracts"
+      contracts = LifeInsuranceDataModel.get_contracts()
+      let df = SearchLight.query("select distinct c.id, w.is_committed from contracts c join histories h on c.ref_history = h.id join workflows w on w.ref_history = h.id ")
+        contract_ids = Dict(Pair.(df.id, df.is_committed))
+      end
+      @show contract_ids
+      @info "contractsModel pushed"
+    end
+
     if (tab == "partners")
       partners = LifeInsuranceDataModel.get_partners()
       @info "read partners"
@@ -318,8 +365,7 @@ function compareRevisions(t, previous::Dict{String,Any}, current::Dict{String,An
     for (key, previous_value) in previous
       if !(key in ("ref_validfrom", "ref_invalidfrom", "ref_component"))
         let current_value = current[key]
-          if previous_value != compareModelStateContract
-            current_value
+          if previous_value != current_value
             changed = true
           end
         end
@@ -341,15 +387,17 @@ function compareModelStateContract(previous::Dict{String,Any}, current::Dict{Str
   if (!isnothing(cr))
     push!(diff, cr)
   end
-  for i in 1:size(previous["partner_refs"])[1]
-    prev = (previous["partner_refs"][i]["rev"])
-    curr = (current["partner_refs"][i]["rev"])
-    prr = compareRevisions(ContractPartnerRefRevision, prev, curr)
-    if (!isnothing(prr))
-      push!(diff, prr)
-    end
 
-  end
+  prev = previous["partner_refs"][i]["rev"]
+  curr = current["partner_refs"][i]["rev"]
+
+  changed = filter(x -> !isnothing(x), [compareRevisions(ContractRevision, a, b)
+                                        for a in current for b in previous if a["id"] == b["id"] && (a["id"]["value"] !== nothing && a["ref_invalidfrom"]["value"] > current_version)])
+  append!(diff, changed)
+  new = [(nothing, el) for el in filter(el -> isnothing(el["id"]["value"]), current)]
+  append!(diff, new)
+  deleted = filter(el -> el["ref_invalidfrom"]["value"] == current_version, current)
+
   for i in 1:size(previous["product_items"])[1]
     prevpi = previous["product_items"][i]
     currpi = current["product_items"][i]

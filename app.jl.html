@@ -149,24 +149,25 @@
                     </div>
                     <div v-for="(pr,pridx) in cs['partner_refs']" class="q-pa-md">
                         <div class="q-pa-md" v-if="activetxn">
-                            <q-btn label="delete" v-on:click="selected_contractpartner_idx=pridx">
+                            <q-btn label="delete" v-on:click="command='delete_contract_partner:´ + pridx">
                             </q-btn>
                         </div>
                         <div class="row">
                             <div class="col">
                                 <q-input bg-color="white" label="description" v-model="pr['rev']['description']"
-                                    :readonly="activetxn==false">
+                                    :readonly="!activetxn">
                                 </q-input>
                             </div>
                             <div class="col">
-                                <q-select label="ref_partner sel" v-model="pr['rev']['ref_partner']['value']"
-                                    :options="[1,2]" v-if="activetxn">
+                                <q-select bg-color="white" label="partner_role sel"
+                                    v-model="pr['rev']['ref_role']['value']" :options="rolesContractPartner" emit-value
+                                    map-options :readonly="!activetxn">
                                 </q-select>
                             </div>
                             <div class="col">
-                                <q-input bg-color="white" label="ref_partner"
-                                    v-model="pr['rev']['ref_partner']['value']" :readonly="true">
-                                </q-input>
+                                <q-select bg-color="white" label="ref_partner sel"
+                                    v-model="pr['rev']['ref_partner']['value']" :options="[1,2]" :readonly="!activetxn">
+                                </q-select>
                             </div>
                         </div>
                     </div>
@@ -176,7 +177,7 @@
                     <q-btn label="add" v-on:click="command='add productitem'" v-if="activetxn"></q-btn>
                     <div v-for="(pi,piidx) in cs['product_items']" class="q-pa-md">
                         <div class="q-pa-md">
-                            <q-btn label="delete" v-on:click="seselected_productitem_idxlected_productitem_idx=piidx"
+                            <q-btn label="delete" v-on:click="selected_productitem_idxlected_productitem_idx=piidx"
                                 v-if="activetxn">
                             </q-btn>
                         </div>
@@ -211,6 +212,12 @@
                                         <div class="col">
                                             <q-input bg-color="white" label="annuity_due"
                                                 v-model="ti['tariff_ref']['rev']['annuity_due']" :readonly="!activetxn">
+                                            </q-input>
+                                        </div>
+                                        <div class="col">
+                                            <q-input bg-color="white" label="annuity_immediate"
+                                                v-model="ti['tariff_ref']['rev']['annuity_immediate']"
+                                                :readonly="!activetxn">
                                             </q-input>
                                         </div>
                                     </div>
