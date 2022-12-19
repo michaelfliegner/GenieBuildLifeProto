@@ -1,262 +1,320 @@
-<% include("toolbar.jl.html") %>
-    <q-tabs v-model="tab" align="left" class="bg-primary text-white shadow-2">
-        <q-tab name="contracts" icon="format_list_bulleted" label="Search Contract"></q-tab>
-        <q-tab name="csection" icon="verified_user" label="Contract Version"></q-tab>
-        <q-tab name="history" icon="history" label="Contract History"></q-tab>
-        <q-tab name="partners" icon="group" label="Partners"></q-tab>
-        <q-tab name="partner" icon="person" label="Partner"></q-tab>
-        <q-tab name="products" icon="functions" label="Products"></q-tab>
-        <q-tab name="product" icon="functions" label="Product"></q-tab>
-    </q-tabs>
-    <q-tab-panels v-model="tab" animated="" swipeable="" horizontal="" transition-prev="jump-up"
-        transition-next="jump-up">
-        <q-tab-panel name="contracts">
-            <template v-for="(cid,cindex) in contracts">
-                <div class="q-pa-md" style="max-width: 350px">
-                    <q-list dense bordered padding class="rounded-borders">
-                        <q-item clickable v-on:click="selected_contract_idx=cindex">
-                            <q-item-section class="bg-teal-1 text-grey-8" v-if="contract_ids[cid['id']['value']]==1">
-                                {{cid['id']['value']}}
-                            </q-item-section>
-                            <q-item-section class="bg-orange-1 text-grey-8" v-else>
-                                {{cid['id']['value']}} has uncommitted workflow
-                            </q-item-section>
-                        </q-item>
-                    </q-list>
+<!--<% include("toolbar.jl.html") %>-->
+<q-toolbar elevated="" class="bg-primary text-white">
+    <q-btn color="primary" icon="menu">
+        <q-menu>
+            <q-list id="ih2l">
+                <q-item clickable="" v-close-popup="" v-on:click="command='persist'" v-if="activetxn">
+                    <q-item-section>Persist changes</q-item-section>
+                </q-item>
+                <q-item clickable="" v-close-popup="" v-on:click="command='create contract'" v-if="!activetxn">
+                    <q-item-section>Create a new contract <q-input label="valid from" v-model="ref_time"></q-input>
+                        </q-input>
+                    </q-item-section>
+                </q-item>
+                <q-item clickable="" v-close-popup="" v-on:click="command='push'" v-if="activetxn">
+                    <q-item-section>Push changes</q-item-section>
+                </q-item>
+                <q-item clickable="" v-close-popup="" v-on:click="command='pop'" v-if="activetxn">
+                    <q-item-section>Pop changes</q-item-section>
+                </q-item>
+                <q-item clickable="" v-close-popup="" v-on:click="command='rollback'" v-if="activetxn">
+                    <q-item-section>Rollback transaction</q-item-section>
+                </q-item>
+                <q-item clickable="" v-close-popup="" v-on:click="command='commit'" v-if="activetxn">
+                    <q-item-section>Commit transaction</q-item-section>
+                </q-item>
+                <q-item tag="a" href="/PartnerSection" clickable="" v-close-popup="">
+                    <q-item-section>Partners</q-item-section>
+                </q-item>
+            </q-list>
+        </q-menu>
+    </q-btn>
+    <q-toolbar-title>
+        <h1>Genie built Life Insurance Contract Management Prototype</h1>
+    </q-toolbar-title>
+</q-toolbar>
+<q-tabs v-model="tab" align="left" class="bg-primary text-white shadow-2">
+    <q-tab name="contracts" icon="format_list_bulleted" label="Search Contract"></q-tab>
+    <q-tab name="csection" icon="verified_user" label="Contract Version"></q-tab>
+    <q-tab name="history" icon="history" label="Contract History"></q-tab>
+    <q-tab name="partners" icon="group" label="Partners"></q-tab>
+    <q-tab name="partner" icon="person" label="Partner"></q-tab>
+    <q-tab name="products" icon="functions" label="Products"></q-tab>
+    <q-tab name="product" icon="functions" label="Product"></q-tab>
+</q-tabs>
+<q-tab-panels v-model="tab" animated="" swipeable="" horizontal="" transition-prev="jump-up" transition-next="jump-up">
+    <q-tab-panel name="contracts">
+        <template v-for="(cid,cindex) in contracts">
+            <div class="q-pa-md" style="max-width: 350px">
+                <q-list dense bordered padding class="rounded-borders">
+                    <q-item clickable v-on:click="selected_contract_idx=cindex">
+                        <q-item-section class="bg-teal-1 text-grey-8" v-if="contract_ids[cid['id']['value']]==1">
+                            {{cid['id']['value']}}
+                        </q-item-section>
+                        <q-item-section class="bg-orange-1 text-grey-8" v-else>
+                            {{cid['id']['value']}} has uncommitted workflow
+                        </q-item-section>
+                    </q-item>
+                </q-list>
+            </div>
+        </template>
+    </q-tab-panel>
+    <q-tab-panel name="history">
+        <q-tree children-key="children" node-key="version" ref="tree" :selected.sync="selected_version" :nodes="histo"
+            label-key="label">
+        </q-tree>
+    </q-tab-panel>
+    <q-tab-panel name="partners">
+        <template v-for="(pid,pindex) in partners">
+            <div class="q-pa-md" style="max-width: 350px">
+                <q-list dense bordered padding class="rounded-borders">
+                    <q-item clickable v-on:click="selected_partner_idx=pindex">
+                        <q-item-section>
+                            {{pid['id']['value']}}
+                        </q-item-section>
+                    </q-item>
+                </q-list>
+            </div>
+        </template>
+    </q-tab-panel>
+    </q-tab-panel>
+    <q-tab-panel name="partner">
+        <h1>PARTNER</h1>
+        <hr />
+        <h1 v-if="ps['loaded'] == 'false'"> no partner loaded</h1>
+        <div v-else>
+            <h1></h1>partner loaded</h1>
+            <div class="row">
+                <div class="col">
+                    <q-input bg-color="white" label="Id" v-model="ps['revision']['id']['value']">
+                    </q-input>
                 </div>
-            </template>
-        </q-tab-panel>
-        <q-tab-panel name="history">
-            <q-tree children-key="children" node-key="version" ref="tree" :selected.sync="selected_version"
-                :nodes="histo" label-key="label">
-            </q-tree>
-        </q-tab-panel>
-        <q-tab-panel name="partners">
-            <template v-for="(pid,pindex) in partners">
-                <div class="q-pa-md" style="max-width: 350px">
-                    <q-list dense bordered padding class="rounded-borders">
-                        <q-item clickable v-on:click="selected_partner_idx=pindex">
-                            <q-item-section>
-                                {{pid['id']['value']}}
-                            </q-item-section>
-                        </q-item>
-                    </q-list>
+                <div class="col">
+                    <q-input bg-color="white" label="description" v-model="ps['revision']['description']['value']">
+                    </q-input>
                 </div>
-            </template>
-        </q-tab-panel>
-        </q-tab-panel>
-        <q-tab-panel name="partner">
-            <h1>PARTNER</h1>
-            <hr />
-            <h1 v-if="ps['loaded'] == 'false'"> no partner loaded</h1>
-            <div v-else>
-                <h1></h1>partner loaded</h1>
-                <div class="row">
-                    <div class="col">
-                        <q-input bg-color="white" label="Id" v-model="ps['revision']['id']['value']">
-                        </q-input>
-                    </div>
-                    <div class="col">
-                        <q-input bg-color="white" label="description" v-model="ps['revision']['description']['value']">
-                        </q-input>
-                    </div>
-                    <div class="col">
-                        <q-input bg-color="white" label="date of birthh" v-model="ps['revision']['date_of_birth']">
-                        </q-input>
-                    </div>
+                <div class="col">
+                    <q-input bg-color="white" label="date of birthh" v-model="ps['revision']['date_of_birth']">
+                    </q-input>
                 </div>
             </div>
+        </div>
+        <hr />
+    </q-tab-panel>
+    <q-tab-panel name="products">
+        <template v-for="(pid,pindex) in products">
+            <div class="q-pa-md" style="max-width: 350px">
+                <q-list dense bordered padding class="rounded-borders">
+                    <q-item clickable v-on:click="selected_product_idx=pindex">
+                        <q-item-section>
+                            {{pid['id']['value']}}
+                        </q-item-section>
+                    </q-item>
+                </q-list>
+            </div>
+        </template>
+    </q-tab-panel>
+    <q-tab-panel name="product">
+        <h1>PRODUCT</h1>
+        <h1 v-if="prs['loaded'] == 'false'"> no product loaded</h1>
+        <q-card v-else="" class="my-card bg-purple-8 text-white">
+            <q-card-section>
+                <div class="text-h2 text-white">Product
+                    {{prs['revision']['ref_component']['value']}}
+                </div>partner
+                <div class="text-h2 text-white">{{prs['revision']['description']}}</div>
+            </q-card-section>
+            <div id="ihe7x" class="q-pa-md">
+                <q-list dense="" bordered="" padding="" class="rounded-borders">
+                    <q-item clickable="" v-ripple="" v-on:click="selected_product_part_idx=ppindex"
+                        v-for="(ppid,ppindex) in prs['parts']">
+                        <q-item-section>
+                            {{ppid['revision']['description']}}
+                        </q-item-section>
+                        <q-item-section>
+                            tariff id
+                            {{ppid['ref']['revision']['ref_component']['value']}}
+                        </q-item-section>
+                        <q-item-section>
+                            description {{ppid['ref']['revision']['description']}}
+                        </q-item-section>
+                        <q-item-section>
+                            Mortality Table {{ppid['ref']['revision']['mortality_table']}}
+                        </q-item-section>
+                    </q-item>
+                </q-list>
+            </div>
+        </q-card>
+    </q-tab-panel>
+    <q-tab-panel name="csection">
+        <h1 v-if="cs['loaded'] == 'false'"> no contract loaded</h1>
+        <q-list v-else>
             <hr />
-        </q-tab-panel>
-        <q-tab-panel name="products">
-            <template v-for="(pid,pindex) in products">
-                <div class="q-pa-md" style="max-width: 350px">
-                    <q-list dense bordered padding class="rounded-borders">
-                        <q-item clickable v-on:click="selected_product_idx=pindex">
-                            <q-item-section>
-                                {{pid['id']['value']}}
-                            </q-item-section>
-                        </q-item>
-                    </q-list>
+            <q-item class="q-pa-md bg-purple-8 text-white">
+                <div class="row">
+                    <div class="col">
+                        <q-input text-color=ẅhite" bg-color="red" label="MUTABLE" :readonly="true" v-if="activetxn">
+                        </q-input>
+                    </div>
+                    <div class="col">
+                        <q-input outlined bg-color="white" label="valid as of" v-model="ref_time" :readonly="true">
+                        </q-input>
+                    </div>
+                    <div class="col">
+                        <q-input outlined bg-color="white" label="version created at" v-model="txn_time"
+                            :readonly="true">
+                        </q-input>
+                    </div>
                 </div>
-            </template>
-        </q-tab-panel>
-        <q-tab-panel name="product">
-            <h1>PRODUCT</h1>
-            <h1 v-if="prs['loaded'] == 'false'"> no product loaded</h1>
-            <q-card v-else="" class="my-card bg-purple-8 text-white">
-                <q-card-section>
-                    <div class="text-h2 text-white">Product
-                        {{prs['revision']['ref_component']['value']}}
-                    </div>partner
-                    <div class="text-h2 text-white">{{prs['revision']['description']}}</div>
-                </q-card-section>
-                <div id="ihe7x" class="q-pa-md">
-                    <q-list dense="" bordered="" padding="" class="rounded-borders">
-                        <q-item clickable="" v-ripple="" v-on:click="selected_product_part_idx=ppindex"
-                            v-for="(ppid,ppindex) in prs['parts']">
-                            <q-item-section>
-                                {{ppid['revision']['description']}}
-                            </q-item-section>
-                            <q-item-section>
-                                tariff id
-                                {{ppid['ref']['revision']['ref_component']['value']}}
-                            </q-item-section>
-                            <q-item-section>
-                                description {{ppid['ref']['revision']['description']}}
-                            </q-item-section>
-                            <q-item-section>
-                                Mortality Table {{ppid['ref']['revision']['mortality_table']}}
-                            </q-item-section>
-                        </q-item>
-                    </q-list>
+                <div class="row">
+                    <div class="col">
+                        <q-input outlined bg-color="white" label="description" v-model="cs['revision']['description']"
+                            :readonly="activetxn==false">
+                        </q-input>
+                    </div>
                 </div>
-            </q-card>
-        </q-tab-panel>
-        <q-tab-panel name="csection">
-            <h1 v-if="cs['loaded'] == 'false'"> no contract loaded</h1>
-            <q-list v-else>
-                <hr />
-                <q-item class="q-pa-md bg-purple-8 text-white">
-                    <div class="row">
-                        <div class="col">
-                            <q-input text-color=ẅhite" bg-color="red" label="MUTABLE" :readonly="true" v-if="activetxn">
-                            </q-input>
-                        </div>
-                        <div class="col">
-                            <q-input outlined bg-color="white" label="valid as of" v-model="ref_time" :readonly="true">
-                            </q-input>
-                        </div>
-                        <div class="col">
-                            <q-input outlined bg-color="white" label="version created at" v-model="txn_time"
-                                :readonly="true">
-                            </q-input>
-                        </div>
+            </q-item>
+            <hr />
+            <q-expansion-item label="contract partners" class="q-mt-md q-mr-sm bg-deep-purple-8 text-white">
+                <div class="row">
+                    <div class="col">
+                        <q-btn label="add" v-on:click="command='add contractpartner'"
+                            v-if="new_contract_partner_role!==0 && new_contract_partner!==0"></q-btn>
+                        <q-input bg-color="white" :readonly=true v-else label="select partner and role to add">
+                            </q0input>
                     </div>
-                    <div class="row">
-                        <div class="col">
-                            <q-input outlined bg-color="white" label="description"
-                                v-model="cs['revision']['description']" :readonly="activetxn==false">
-                            </q-input>
-                        </div>
+                    <div class="col">
+                        <q-select bg-color="white" label="partner_role sel" v-model="new_contract_partner_role"
+                            :options="rolesContractPartner" emit-value map-options :readonly="!activetxn">
+                        </q-select>
                     </div>
-                </q-item>
-                <hr />
-
-                <q-expansion-item label="contract partners" class="q-mt-md q-mr-sm bg-deep-purple-8 text-white">
-                    <div v-if="activetxn">
-                        <q-btn label="add" v-on:click="command='add contractpartner'"></q-btn>
+                    <div class="col">
+                        <q-select bg-color="white" label="ref_partner sel" v-model="new_contract_partner"
+                            :options="[1,2]" :readonly="!activetxn">
+                        </q-select>
                     </div>
-                    <div v-for="(pr,pridx) in cs['partner_refs']" class="q-pa-md">
+                </div>
+                <div v-for="(pr,pridx) in cs['partner_refs']" class="q-pa-md">
+                    <div class="row"
+                        v-if="pr['rev']['ref_invalidfrom']['value']  > current_workflow['ref_version']['value']">
                         <div class="q-pa-md" v-if="activetxn">
-                            <q-btn label="delete" v-on:click="command='delete_contract_partner:´ + pridx">
+                            <q-btn label="delete" v-on:click="command='delete_contract_partner:' + pridx">
                             </q-btn>
                         </div>
-                        <div class="row">
-                            <div class="col">
-                                <q-input bg-color="white" label="description" v-model="pr['rev']['description']"
-                                    :readonly="!activetxn">
-                                </q-input>
-                            </div>
-                            <div class="col">
-                                <q-select bg-color="white" label="partner_role sel"
-                                    v-model="pr['rev']['ref_role']['value']" :options="rolesContractPartner" emit-value
-                                    map-options :readonly="!activetxn">
-                                </q-select>
-                            </div>
-                            <div class="col">
-                                <q-select bg-color="white" label="ref_partner sel"
-                                    v-model="pr['rev']['ref_partner']['value']" :options="[1,2]" :readonly="!activetxn">
-                                </q-select>
-                            </div>
+
+
+
+                        <div class="col">
+                            <q-input bg-color="white" label="invalidfrom"
+                                v-model="pr['rev']['ref_invalidfrom']['value']" :readonly="!activetxn">
+                            </q-input>
+                        </div>
+
+
+
+
+
+                        <div class="col">
+                            <q-input bg-color="white" label="description" v-model="pr['rev']['description']"
+                                :readonly="!activetxn">
+                            </q-input>
+                        </div>
+                        <div class="col">
+                            <q-select bg-color="white" label="partner_role sel" v-model="pr['rev']['ref_role']['value']"
+                                :options="rolesContractPartner" emit-value map-options :readonly="!activetxn">
+                            </q-select>
+                        </div>
+                        <div class="col">
+                            <q-select bg-color="white" label="ref_partner sel"
+                                v-model="pr['rev']['ref_partner']['value']" :options="[1,2]" :readonly="!activetxn">
+                            </q-select>
                         </div>
                     </div>
-                </q-expansion-item>
-                <hr />
-                <q-expansion-item label="product items" class="q-mt-md q-mr-sm bg-deep-purple-8 text-white">
-                    <q-btn label="add" v-on:click="command='add productitem'" v-if="activetxn"></q-btn>
-                    <div v-for="(pi,piidx) in cs['product_items']" class="q-pa-md">
-                        <div class="q-pa-md">
-                            <q-btn label="delete" v-on:click="selected_productitem_idxlected_productitem_idx=piidx"
-                                v-if="activetxn">
-                            </q-btn>
+                </div>
+            </q-expansion-item>
+            <hr />
+            <q-expansion-item label="product items" class="q-mt-md q-mr-sm bg-deep-purple-8 text-white">
+                <q-btn label="add" v-on:click="command='add productitem'" v-if="!activetxn"></q-btn>
+                <div v-for="(pi,piidx) in cs['product_items']" class="q-pa-md">
+                    <div class="q-pa-md">
+                        <q-btn label="delete" v-on:click="selected_productitem_idxlected_productitem_idx=piidx"
+                            v-if="activetxn">
+                        </q-btn>
+                    </div>
+                    <div class="row">
+                        <div class="col">
+                            <q-input bg-color="white" label="description" v-model="pi['revision']['description']"
+                                :readonly="!activetxn">
+                            </q-input>
                         </div>
-                        <div class="row">
-                            <div class="col">
-                                <q-input bg-color="white" label="description" v-model="pi['revision']['description']"
-                                    :readonly="!activetxn">
-                                </q-input>
-                            </div>
-                        </div>
-                        <hr />
-                        <q-expansion-item label="tariff items">
-                            <q-list class="q-mt-md q-mr-sm bg-purple text-white">
-                                <div v-for="ti in pi['tariff_items']" class="q-pa-md">
-                                    <div class="row">
-                                        <div class="col">
-                                            <q-input bg-color="white" label="description"
-                                                v-model="ti['tariff_ref']['rev']['description']" :readonly="!activetxn">
-                                            </q-input>
-                                        </div>
-                                        <div class="col">
-                                            <q-input bg-color="white" label="ref_tariff"
-                                                v-model="ti['tariff_ref']['rev']['ref_tariff']['value']"
-                                                :readonly="true">
-                                            </q-input>
-                                        </div>
-                                        <div class="col">
-                                            <q-input bg-color="white" label="deferment"
-                                                v-model="ti['tariff_ref']['rev']['deferment']" :readonly="!activetxn">
-                                            </q-input>
-                                        </div>
-                                        <div class="col">
-                                            <q-input bg-color="white" label="annuity_due"
-                                                v-model="ti['tariff_ref']['rev']['annuity_due']" :readonly="!activetxn">
-                                            </q-input>
-                                        </div>
-                                        <div class="col">
-                                            <q-input bg-color="white" label="annuity_immediate"
-                                                v-model="ti['tariff_ref']['rev']['annuity_immediate']"
-                                                :readonly="!activetxn">
-                                            </q-input>
-                                        </div>
+                    </div>
+                    <hr />
+                    <q-expansion-item label="tariff items">
+                        <q-list class="q-mt-md q-mr-sm bg-purple text-white">
+                            <div v-for="ti in pi['tariff_items']" class="q-pa-md">
+                                <div class="row">
+                                    <div class="col">
+                                        <q-input bg-color="white" label="description"
+                                            v-model="ti['tariff_ref']['rev']['description']" :readonly="!activetxn">
+                                        </q-input>
                                     </div>
-                                    <hr />
-                                    <q-expansion-item label="tariff_item_partners">
-                                        <q-list class="q-mt-md q-mr-sm bg-deep-purple-8 text-white">
-                                            <div v-for="tipr in ti['partner_refs']" class="q-pa-md">
-                                                <div class="row">
-                                                    <div class="col">
-                                                        <q-input bg-color="white" label="description"
-                                                            v-model="tipr['rev']['description']" :readonly="!activetxn">
-                                                        </q-input>
-                                                    </div>
-                                                    <div class="col">
-                                                        <q-select label="ref_role"
-                                                            v-model="tipr['rev']['ref_role']['value']" :options="[1,2]"
-                                                            v-if="activetxn">
-                                                        </q-select>
-                                                    </div>
-                                                    <div class="col">
-                                                        <q-input bg-color="white" label="ref_role"
-                                                            v-model="tipr['rev']['ref_role']['value']" :readonly="true">
-                                                        </q-input>
-                                                    </div>
-                                                    <div class="col">
-                                                        <q-input bg-color="white" label="ref_partner"
-                                                            v-model="tipr['rev']['ref_partner']['value']"
-                                                            :readonly="true">
-                                                        </q-input>
-                                                    </div>
+                                    <div class="col">
+                                        <q-input bg-color="white" label="ref_tariff"
+                                            v-model="ti['tariff_ref']['rev']['ref_tariff']['value']" :readonly="true">
+                                        </q-input>
+                                    </div>
+                                    <div class="col">
+                                        <q-input bg-color="white" label="deferment"
+                                            v-model="ti['tariff_ref']['rev']['deferment']" :readonly="!activetxn">
+                                        </q-input>
+                                    </div>
+                                    <div class="col">
+                                        <q-input bg-color="white" label="annuity_due"
+                                            v-model="ti['tariff_ref']['rev']['annuity_due']" :readonly="!activetxn">
+                                        </q-input>
+                                    </div>
+                                    <div class="col">
+                                        <q-input bg-color="white" label="annuity_immediate"
+                                            v-model="ti['tariff_ref']['rev']['annuity_immediate']"
+                                            :readonly="!activetxn">
+                                        </q-input>
+                                    </div>
+                                </div>
+                                <hr />
+                                <q-expansion-item label="tariff_item_partners">
+                                    <q-list class="q-mt-md q-mr-sm bg-deep-purple-8 text-white">
+                                        <div v-for="tipr in ti['partner_refs']" class="q-pa-md">
+                                            <div class="row">
+                                                <div class="col">
+                                                    <q-input bg-color="white" label="description"
+                                                        v-model="tipr['rev']['description']" :readonly="!activetxn">
+                                                    </q-input>
+                                                </div>
+                                                <div class="col">
+                                                    <q-select label="ref_role"
+                                                        v-model="tipr['rev']['ref_role']['value']" :options="[1,2]"
+                                                        v-if="activetxn">
+                                                    </q-select>
+                                                </div>
+                                                <div class="col">
+                                                    <q-input bg-color="white" label="ref_role"
+                                                        v-model="tipr['rev']['ref_role']['value']" :readonly="true">
+                                                    </q-input>
+                                                </div>
+                                                <div class="col">
+                                                    <q-input bg-color="white" label="ref_partner"
+                                                        v-model="tipr['rev']['ref_partner']['value']" :readonly="true">
+                                                    </q-input>
                                                 </div>
                                             </div>
-                                        </q-list>
-                                    </q-expansion-item>
-                                </div>
-                            </q-list>
-                        </q-expansion-item>
-                    </div>
-                </q-expansion-item>
-            </q-list>
-        </q-tab-panel>
-    </q-tab-panels>
+                                        </div>
+                                    </q-list>
+                                </q-expansion-item>
+                            </div>
+                        </q-list>
+                    </q-expansion-item>
+                </div>
+            </q-expansion-item>
+        </q-list>
+    </q-tab-panel>
+</q-tab-panels>

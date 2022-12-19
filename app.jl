@@ -20,7 +20,8 @@ CS_UNDO = Stack{Dict{String,Any}}()
   @out products::Vector{Product} = []
   @out current_product::Product = Product()
   @in selected_product_idx::Integer = -1
-  @in contract_partner_role::Integer = 0
+  @in new_contract_partner_role::Integer = 0
+  @in new_contract_partner::Integer = 0
   @in selected_contractpartner_idx::Integer = -1
   @in selected_productitem_idx::Integer = -1
   @in selected_version::String = ""
@@ -29,6 +30,7 @@ CS_UNDO = Stack{Dict{String,Any}}()
   @out ref_time::ZonedDateTime = now(tz"UTC")
   @out histo::Vector{Dict{String,Any}} = Dict{String,Any}[]
   @in cs::Dict{String,Any} = Dict{String,Any}("loaded" => "false")
+  @out cs_persisted = Dict{String,Any}()
   @out ps::Dict{String,Any} = Dict{String,Any}("loaded" => "false")
   @out prs::Dict{String,Any} = Dict{String,Any}("loaded" => "false")
   @in selected_product_part_idx::Integer = 0
@@ -71,7 +73,13 @@ CS_UNDO = Stack{Dict{String,Any}}()
         histo = map(convert, LifeInsuranceDataModel.history_forest(current_contract.ref_history.value).shadowed)
         cs = JSON.parse(JSON.json(LifeInsuranceDataModel.csection(current_contract.id.value, now(tz"UTC"), now(tz"UTC"), activetxn ? 1 : 0)))
         cs["loaded"] = "true"
-        push!(CS_UNDO, copy(cs))
+        cs_persisted = deepcopy(cs)
+        @info "cs==cs_persisted?"
+        @show cs == cs_persisted
+        @show cs
+        @show cs_persisted
+        push!(CS_UNDO, cs_persisted)
+
         if cs["product_items"] != []
           ti = cs["product_items"][1]["tariff_items"][1]
           tistruct = ToStruct.tostruct(LifeInsuranceDataModel.TariffItemSection, ti)
@@ -85,6 +93,7 @@ CS_UNDO = Stack{Dict{String,Any}}()
         tab = "csection"
         selected_contract_idx = -1
         @info "contract loaded"
+        @show cs_persisted
       catch err
         println("wassis shief gegangen ")
         @error "ERROR: " exception = (err, catch_backtrace())
@@ -168,7 +177,12 @@ CS_UNDO = Stack{Dict{String,Any}}()
         @show command
         @show cs["partner_refs"]
 
-        cprj = JSON.parse(JSON.json(ContractPartnerReference(rev=ContractPartnerRefRevision(), ref=PartnerSection())))
+
+        cprj = JSON.parse(JSON.json(ContractPartnerReference(
+          rev=ContractPartnerRefRevision(ref_role=DbId(new_contract_partner_role), ref_partner=DbId(new_contract_partner)),
+          ref=PartnerSection())))
+        new_contract_partner_role = 0
+        new_contract_partner = 0
         append!(cs["partner_refs"], [cprj])
         @show cs["partner_refs"]
         @info "anzahl prefs= "
@@ -191,13 +205,33 @@ CS_UNDO = Stack{Dict{String,Any}}()
         tab = ""
         tab = "contracts"
       end
+
+      #if isnothing(cs["partner_refs"][idx+1]["rev"]["id"]["value"])
+      #  deleteat!(cs["partner_refs"], idx + 1)
+      #  @info "after delete new cp"
+      #else
+      #  cs["partner_refs"][idx+1]["rev"]["ref_invalidfrom"]["value"] = current_workflow.ref_version
+      #  @info "after delete persisted cp"
+      #end
+
+
       if startswith(command, "delete_contract_partner")
+
         @show command
+
+
         @show first(CS_UNDO)["partner_refs"]
-        idx = parse(Int64, chopprefix(command, "delete_contract_partner"))
-        deleteat!(cs["partner_refs"], idx + 1)
-        @info "afer delete cp"
-        @show first(CS_UNDO)["partner_refs"]
+        idx = parse(Int64, chopprefix(command, "delete_contract_partner:"))
+
+        @show cs["partner_refs"][idx+1]["rev"]
+        if isnothing(cs["partner_refs"][idx+1]["rev"]["id"]["value"])
+          deleteat!(cs["partner_refs"], idx + 1)
+          @info "after delete new cp"
+        else
+          cs["partner_refs"][idx+1]["rev"]["ref_invalidfrom"]["value"] = current_workflow.ref_version
+          @show cs["partner_refs"][idx+1]["rev"]
+          @info "after delete persisted cp"
+        end
         push!(__model__)
       end
 
@@ -217,8 +251,8 @@ CS_UNDO = Stack{Dict{String,Any}}()
 
       if command == "persist"
         @show command
-        @show cs_undo
-        deltas = compareModelStateContract(cs_undo, cs)
+        @show cs_persisted
+        deltas = compareModelStateContract(cs_persisted, cs)
         @show deltas
         @show current_contract
 
@@ -226,11 +260,30 @@ CS_UNDO = Stack{Dict{String,Any}}()
           println(delta)
           prev = delta[1]
           curr = delta[2]
-          if curr.id != DbId() # db identity has been set 
-            update_component!(prev, curr, current_workflow)
-          elseif curr.id == DbId()
-            LifeInsuranceDataModel.ty
-            create_component!(curr, current_workflow)
+          if !isnothing(prev) # db identity has been set 
+            if prev.ref_invalidfrom == current_workflow.ref_version
+              @info ""
+            else
+              update_component!(prev, curr, current_workflow)
+            end
+          else
+            @info("new ")
+            @show curr
+            @info "Type is" * string(typeof(curr))
+            ct = get_typeof_component(curr)
+            @show ct
+            @info "Component Type is" * string(ct)
+            # ContractPartnerRef
+            # Workflow
+            @show current_workflow.ref_history
+            @show current_workflow.ref_version
+            @show current_contract.id
+            currc = ct(ref_history=current_workflow.ref_history, ref_version=current_workflow.ref_version,
+              ref_super=current_contract.id)
+            @show currc
+            create_component!(currc, curr, current_workflow)
+            # LifeInsuranceDataModel.
+            # create_component!(curr, current_workflow
           end
         end
         command = ""
@@ -383,45 +436,55 @@ compareModelStateContract(previous::Dict{String,Any}, current::Dict{String,Any})
 """
 function compareModelStateContract(previous::Dict{String,Any}, current::Dict{String,Any})
   diff = []
+  @show current["revision"]
+  @show previous
   cr = compareRevisions(ContractRevision, previous["revision"], current["revision"])
   if (!isnothing(cr))
     push!(diff, cr)
   end
-
-  prev = previous["partner_refs"][i]["rev"]
-  curr = current["partner_refs"][i]["rev"]
-
-  changed = filter(x -> !isnothing(x), [compareRevisions(ContractRevision, a, b)
-                                        for a in current for b in previous if a["id"] == b["id"] && (a["id"]["value"] !== nothing && a["ref_invalidfrom"]["value"] > current_version)])
-  append!(diff, changed)
-  new = [(nothing, el) for el in filter(el -> isnothing(el["id"]["value"]), current)]
-  append!(diff, new)
-  deleted = filter(el -> el["ref_invalidfrom"]["value"] == current_version, current)
-
-  for i in 1:size(previous["product_items"])[1]
-    prevpi = previous["product_items"][i]
-    currpi = current["product_items"][i]
-    pit = compareRevisions(ProductItemRevision, prevpi["revision"], currpi["revision"])
-    if (!isnothing(pit))
-      push!(diff, pit)
-    end
-    for i in 1:size(prevpi["tariff_items"])[1]
-      prevti = prevpi["tariff_items"][i]
-      currti = currpi["tariff_items"][i]
-      tit = compareRevisions(TariffItemRevision, prevti["tariff_ref"]["rev"], currti["tariff_ref"]["rev"])
-      if (!isnothing(tit))
-        push!(diff, tit)
-      end
-      for i in 1:size(prevti["partner_refs"])[1]
-        prevtipr = prevti["partner_refs"][i]["rev"]
-        currtipr = currti["partner_refs"][i]["rev"]
-        tiprt = compareRevisions(TariffItemPartnerRefRevision, prevtipr, currtipr)
-        if (!isnoting(tiprt))
-          push!(diff, tiprt)
-        end
-      end
+  @info "comparing Partner_refs"
+  for i in 1:length(current["partner_refs"])
+    @show current["partner_refs"]
+    curr = current["partner_refs"][i]["rev"]
+    @info "current pref rev"
+    @show curr
+    if isnothing(curr["id"]["value"])
+      println("INSERT" * string(i))
+      push!(diff, (nothing, ToStruct.tostruct(ContractPartnerRefRevision, curr)))
+      # else
+      #  changed = compareRevisions(ContractRevision, prec, curr)
+      #  if !isnothing(changed)
+      #    push!(diff, changed)
+      #  endcompareModelStateContract
     end
   end
+  # 
+  # (a["id"]["value"] !== nothing && a["ref_invalidfrom"]["value"] > current_version)])
+  # end
+  #  for i in 1:size(previous["product_items"])[1]
+  #    prevpi = previous["product_items"][i]
+  #    currpi = current["product_items"][i]
+  #    pit = compareRevisions(ProductItemRevision, prevpi["revision"], currpi["revision"])
+  #    if (!isnothing(pit))
+  #      push!(diff, pit)
+  #    end
+  #    for i in 1:size(prevpi["tariff_items"])[1]
+  #      prevti = prevpi["tariff_items"][i]
+  #      currti = currpi["tariff_items"][i]
+  #      tit = compareRevisions(TariffItemRevision, prevti["tariff_ref"]["rev"], currti["tariff_ref"]["rev"])
+  #      if (!isnothing(tit))
+  #        push!(diff, tit)
+  #      end
+  #      for i in 1:size(prevti["partner_refs"])[1]
+  #        prevtipr = prevti["partner_refs"][i]["rev"]
+  #        currtipr = currti["partner_refs"][i]["rev"]
+  #        tiprt = compareRevisions(TariffItemPartnerRefRevision, prevtipr, currtipr)
+  #        if (!isnoting(tiprt))
+  #          push!(diff, tiprt)
+  #        end
+  #      end
+  #    end
+  #  end
   diff
 end
 
