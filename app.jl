@@ -69,7 +69,9 @@ CS_UNDO = Stack{Dict{String,Any}}()
         current_contract = contracts[selected_contract_idx+1]
         activetxn = contract_ids[current_contract.id.value] == 0 ? true : false
         @show activetxn
-        current_workflow = find(Workflow, SQLWhereExpression("ref_history=?", current_contract.ref_history))[1]
+        if activetxn == 1
+          current_workflow = find(Workflow, SQLWhereExpression("ref_history=?", current_contract.ref_history))[1]
+        end
         histo = map(convert, LifeInsuranceDataModel.history_forest(current_contract.ref_history.value).shadowed)
         cs = JSON.parse(JSON.json(LifeInsuranceDataModel.csection(current_contract.id.value, now(tz"UTC"), now(tz"UTC"), activetxn ? 1 : 0)))
         cs["loaded"] = "true"
@@ -200,6 +202,8 @@ CS_UNDO = Stack{Dict{String,Any}}()
         c = Contract()
         cr = ContractRevision(description="contract creation properties")
         create_component!(c, cr, w1)
+        current_workflow = w1
+        current_contract = c
         @show command
         command = ""
         tab = ""
@@ -252,22 +256,29 @@ CS_UNDO = Stack{Dict{String,Any}}()
       if command == "persist"
         @show command
         @show cs_persisted
-        deltas = compareModelStateContract(cs_persisted, cs)
+        deltas = compareModelStateContract(cs_persisted, cs, current_workflow)
+        @info "showing deltas"
         @show deltas
-        @show current_contract
-
+        @info "ende deltas"
         for delta in deltas
-          println(delta)
           prev = delta[1]
           curr = delta[2]
-          if !isnothing(prev) # db identity has been set 
-            if prev.ref_invalidfrom == current_workflow.ref_version
-              @info ""
+          if !isnothing(prev) # component is not new, db identity has been set 
+            @info "preexisting component"
+            @show curr.ref_invalidfrom.value
+            @show prev.ref_invalidfrom.value
+            @show current_workflow.ref_version.value
+            @show curr.ref_invalidfrom.value == current_workflow.ref_version.value
+            if parse(Int, curr.ref_invalidfrom.value) == current_workflow.ref_version.value# component has just been deleted 
+              @info "deleting component"
+              @show curr
+              delete_component!(curr, current_workflow)
             else
+              @info "comparing component"
               update_component!(prev, curr, current_workflow)
             end
           else
-            @info("new ")
+            @info("new component ")
             @show curr
             @info "Type is" * string(typeof(curr))
             ct = get_typeof_component(curr)
@@ -282,20 +293,28 @@ CS_UNDO = Stack{Dict{String,Any}}()
               ref_super=current_contract.id)
             @show currc
             create_component!(currc, curr, current_workflow)
-            # LifeInsuranceDataModel.
-            # create_component!(curr, current_workflow
+
           end
         end
+        cs = JSON.parse(JSON.json(LifeInsuranceDataModel.csection(current_contract.id.value, txn_time, ref_time, activetxn ? 1 : 0)))
+        cs["loaded"] = "true"
+        push!(__model__)
         command = ""
       end
       if command == "commit"
         @show command
+        @show current_workflow
+        commit_workflow!(current_workflow)
+        activetxn = 0
+        current_workflow = Workflow()
         command = ""
       end
       if command == "rollback"
         @show command
         @show current_workflow
         rollback_workflow!(current_workflow)
+        activetxn = 0
+        current_workflow = Workflow()
         command = ""
       end
       if command == "new contract"
@@ -347,6 +366,7 @@ CS_UNDO = Stack{Dict{String,Any}}()
     @show tab
 
     if tab == "contracts"
+      current_contract = Contract()
       contracts = LifeInsuranceDataModel.get_contracts()
       let df = SearchLight.query("select distinct c.id, w.is_committed from contracts c join histories h on c.ref_history = h.id join workflows w on w.ref_history = h.id ")
         contract_ids = Dict(Pair.(df.id, df.is_committed))
@@ -431,10 +451,10 @@ function compareRevisions(t, previous::Dict{String,Any}, current::Dict{String,An
 end
 
 """
-compareModelStateContract(previous::Dict{String,Any}, current::Dict{String,Any})
+compareModelStateContract(previous::Dict{String,Any}, current::Dict{String,Any}, w::Workflow)
 	compare viewmodel state for a contract section
 """
-function compareModelStateContract(previous::Dict{String,Any}, current::Dict{String,Any})
+function compareModelStateContract(previous::Dict{String,Any}, current::Dict{String,Any}, w::Workflow)
   diff = []
   @show current["revision"]
   @show previous
@@ -449,42 +469,26 @@ function compareModelStateContract(previous::Dict{String,Any}, current::Dict{Str
     @info "current pref rev"
     @show curr
     if isnothing(curr["id"]["value"])
-      println("INSERT" * string(i))
+      @info ("INSERT" * string(i))
       push!(diff, (nothing, ToStruct.tostruct(ContractPartnerRefRevision, curr)))
-      # else
-      #  changed = compareRevisions(ContractRevision, prec, curr)
-      #  if !isnothing(changed)
-      #    push!(diff, changed)
-      #  endcompareModelStateContract
+    else
+      prev = previous["partner_refs"][i]["rev"]
+      if curr["ref_invalidfrom"]["value"] == w.ref_version
+        @info ("DELETE" * string(i))
+        push!(diff, (ToStruct.tostruct(ContractPartnerRefRevision, prev), ToStruct.tostruct(ContractPartnerRefRevision, curr)))
+        @info "DIFF="
+        @show diff
+      else
+        @info ("UPDATE" * string(i))
+        cprr = compareRevisions(ContractPartnerRefRevision, prev, curr)
+        if (!isnothing(cprr))
+          push!(diff, cprr)
+        end
+      end
     end
   end
-  # 
-  # (a["id"]["value"] !== nothing && a["ref_invalidfrom"]["value"] > current_version)])
-  # end
-  #  for i in 1:size(previous["product_items"])[1]
-  #    prevpi = previous["product_items"][i]
-  #    currpi = current["product_items"][i]
-  #    pit = compareRevisions(ProductItemRevision, prevpi["revision"], currpi["revision"])
-  #    if (!isnothing(pit))
-  #      push!(diff, pit)
-  #    end
-  #    for i in 1:size(prevpi["tariff_items"])[1]
-  #      prevti = prevpi["tariff_items"][i]
-  #      currti = currpi["tariff_items"][i]
-  #      tit = compareRevisions(TariffItemRevision, prevti["tariff_ref"]["rev"], currti["tariff_ref"]["rev"])
-  #      if (!isnothing(tit))
-  #        push!(diff, tit)
-  #      end
-  #      for i in 1:size(prevti["partner_refs"])[1]
-  #        prevtipr = prevti["partner_refs"][i]["rev"]
-  #        currtipr = currti["partner_refs"][i]["rev"]
-  #        tiprt = compareRevisions(TariffItemPartnerRefRevision, prevtipr, currtipr)
-  #        if (!isnoting(tiprt))
-  #          push!(diff, tiprt)
-  #        end
-  #      end
-  #    end
-  #  end
+  @info "final DIFF"
+  @show diff
   diff
 end
 

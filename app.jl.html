@@ -8,7 +8,10 @@
                 </q-item>
                 <q-item clickable="" v-close-popup="" v-on:click="command='create contract'" v-if="!activetxn">
                     <q-item-section>Create a new contract <q-input label="valid from" v-model="ref_time"></q-input>
-                        </q-input>
+                    </q-item-section>
+                </q-item><q-item clickable="" v-close-popup="" v-on:click="command='commit'"
+                    v-if="!activetxn && !(current_contract['id']['value'] == null)">
+                    <q-item-section>Start transaction<q-input label="valid from" v-model="ref_time"></q-input>
                     </q-item-section>
                 </q-item>
                 <q-item clickable="" v-close-popup="" v-on:click="command='push'" v-if="activetxn">
@@ -19,12 +22,12 @@
                 </q-item>
                 <q-item clickable="" v-close-popup="" v-on:click="command='rollback'" v-if="activetxn">
                     <q-item-section>Rollback transaction</q-item-section>
-                </q-item>
-                <q-item clickable="" v-close-popup="" v-on:click="command='commit'" v-if="activetxn">
+                </q-item><q-item clickable="" v-close-popup="" v-on:click="command='commit'" v-if="activetxn">
                     <q-item-section>Commit transaction</q-item-section>
                 </q-item>
                 <q-item tag="a" href="/PartnerSection" clickable="" v-close-popup="">
-                    <q-item-section>Partners</q-item-section>
+                    <q-item-section>Partners
+                    </q-item-section>
                 </q-item>
             </q-list>
         </q-menu>
