@@ -6,10 +6,25 @@
                 <q-item clickable="" v-close-popup="" v-on:click="command='persist'" v-if="activetxn">
                     <q-item-section>Persist changes</q-item-section>
                 </q-item>
-                <q-item clickable="" v-close-popup="" v-on:click="command='create contract'" v-if="!activetxn">
-                    <q-item-section>Create a new contract <q-input label="valid from" v-model="ref_time"></q-input>
+                <q-item v-if="!activetxn">
+                    <q-item-section>Create a new contract
+                        <div class="q-pa-md" style="max-width: 300px">
+                            <q-input filled v-model="ref_time" mask="date" :rules="['date']">
+                                <template v-slot:append>
+                                    <q-icon name="event" class="cursor-pointer">
+                                        <q-popup-proxy cover transition-show="scale" transition-hide="scale">
+                                            <q-date v-model="date">
+                                                <div class="row items-center justify-end">
+                                                    <q-btn v-close-popup label="Close" color="primary" flat />
+                                                </div>
+                                            </q-date>
+                                        </q-popup-proxy>
+                                    </q-icon>
+                                </template>
+                            </q-input>
+                        </div><q-btn v-close-popup="" label="add" v-on:click="command='add contractpartner'"></q-btn>
                     </q-item-section>
-                </q-item><q-item clickable="" v-close-popup="" v-on:click="command='commit'"
+                </q-item><q-item clickable="" v-close-popup="" v-on:click="command='start transaction'"
                     v-if="!activetxn && !(current_contract['id']['value'] == null)">
                     <q-item-section>Start transaction<q-input label="valid from" v-model="ref_time"></q-input>
                     </q-item-section>
@@ -150,9 +165,28 @@
         </q-card>
     </q-tab-panel>
     <q-tab-panel name="csection">
+
         <h1 v-if="cs['loaded'] == 'false'"> no contract loaded</h1>
         <q-list v-else>
-            <hr />
+            <div class="q-pa-md q-gutter-sm" v-if="!activetxn">
+                <q-btn label="new Mutation" color="primary" v-on:click="prompt_new_txn=true; newreftime=''" />
+                <q-dialog v-model="prompt_new_txn" persistent>
+                    <q-card style="min-width: 350px">
+                        <q-card-section>
+                            <div class="text-h6">Mutation valid as of</div>
+                        </q-card-section>
+
+                        <q-card-section class="q-pt-none">
+                            <q-date v-model="newreftime" minimal />
+                        </q-card-section>
+
+                        <q-card-actions align="right" class="text-primary">
+                            <q-btn flat label="Cancel" v-on:click="newreftime=''" v-close-popup />
+                            <q-btn flat label="Add workflow" v-close-popup />
+                        </q-card-actions>
+                    </q-card>
+                </q-dialog>
+            </div>
             <q-item class="q-pa-md bg-purple-8 text-white">
                 <div class="row">
                     <div class="col">

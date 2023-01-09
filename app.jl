@@ -9,6 +9,7 @@ CS_UNDO = Stack{Dict{String,Any}}()
 @handlers begin
   @out activetxn::Bool = false
   @in command::String = ""
+  @in prompt_new_txn::Bool = false
   @out contracts::Vector{Contract} = []
   @out contract_ids::Dict{Int64,Int64} = Dict{Int64,Int64}()
   @out current_contract::Contract = Contract()
@@ -27,6 +28,7 @@ CS_UNDO = Stack{Dict{String,Any}}()
   @in selected_version::String = ""
   @out current_version::Integer = 0
   @out txn_time::ZonedDateTime = now(tz"UTC")
+  @in newreftime::String = ""
   @out ref_time::ZonedDateTime = now(tz"UTC")
   @out histo::Vector{Dict{String,Any}} = Dict{String,Any}[]
   @in cs::Dict{String,Any} = Dict{String,Any}("loaded" => "false")
@@ -59,6 +61,40 @@ CS_UNDO = Stack{Dict{String,Any}}()
     @show "App is loaded"
     tab = "contracts"
   end
+  @onchange prompt_new_txn begin
+    @info "prompt_new_txn pressed"
+    @show prompt_new_txn
+    if !prompt_new_txn
+      @show newreftime
+      @show ref_time
+      if newreftime == ""
+        @info "cancelled"
+      else
+        @info "should parse now"
+        n = replace(newreftime, "/" => "-")
+        @show n
+        ref_time = ZonedDateTime(DateTime(n), tz"UTC")
+        w1 = Workflow(
+          type_of_entity="Contract",
+          tsw_validfrom=ref_time,
+          ref_history=current_contract.ref_history
+        )
+        update_entity!(w1)
+        activetxn = true
+        cs = JSON.parse(JSON.json(LifeInsuranceDataModel.csection(current_contract.id.value, now(tz"UTC"), ref_time, activetxn ? 1 : 0)))
+        cs["loaded"] = "true"
+        cs_persisted = deepcopy(cs)
+
+        @info "cs==cs_persisted?"
+        @show cs == cs_persisted
+        @show cs
+        @show cs_persisted
+        push!(CS_UNDO, cs_persisted)
+      end
+    else
+      @info "öffnen"
+    end
+  end
 
   @onchange selected_contract_idx begin
     if (selected_contract_idx >= 0)
@@ -67,14 +103,24 @@ CS_UNDO = Stack{Dict{String,Any}}()
       @info "enter selected_contract_idx"
       try
         current_contract = contracts[selected_contract_idx+1]
-        activetxn = contract_ids[current_contract.id.value] == 0 ? true : false
+        activetxn = length(find(ValidityInterval, SQLWhereExpression("ref_history=? and is_committed=0", current_contract.ref_history))) == 1
+
+        @show current_contract
         @show activetxn
-        if activetxn == 1
-          current_workflow = find(Workflow, SQLWhereExpression("ref_history=?", current_contract.ref_history))[1]
+
+        if activetxn
+          current_workflow = find(Workflow, SQLWhereExpression("ref_history=? and is_committed=0", current_contract.ref_history))[1]
+          ref_time = current_workflow.tsw_validfrom
+          histo = map(convert, LifeInsuranceDataModel.history_forest(current_contract.ref_history.value).shadowed)
+          cs = JSON.parse(JSON.json(LifeInsuranceDataModel.csection(current_contract.id.value, now(tz"UTC"), ref_time, activetxn ? 1 : 0)))
+          cs["loaded"] = "true"
+        else
+          ref_time = now(tz"UTC")
+          histo = map(convert, LifeInsuranceDataModel.history_forest(current_contract.ref_history.value).shadowed)
+          cs = JSON.parse(JSON.json(LifeInsuranceDataModel.csection(current_contract.id.value, now(tz"UTC"), now(tz"UTC"), activetxn ? 1 : 0)))
+          cs["loaded"] = "true"
         end
-        histo = map(convert, LifeInsuranceDataModel.history_forest(current_contract.ref_history.value).shadowed)
-        cs = JSON.parse(JSON.json(LifeInsuranceDataModel.csection(current_contract.id.value, now(tz"UTC"), now(tz"UTC"), activetxn ? 1 : 0)))
-        cs["loaded"] = "true"
+        @show current_workflow
         cs_persisted = deepcopy(cs)
         @info "cs==cs_persisted?"
         @show cs == cs_persisted
@@ -125,7 +171,6 @@ CS_UNDO = Stack{Dict{String,Any}}()
       end
     end
   end
-
   @onchange selected_product_idx begin
     @show selected_product_idx
     @info "selected_product_idx"
@@ -196,7 +241,7 @@ CS_UNDO = Stack{Dict{String,Any}}()
         activetxn = true
         w1 = Workflow(
           type_of_entity="Contract",
-          tsw_validfrom=ZonedDateTime(2014, 5, 30, 21, 0, 1, 1, tz"UTC"),
+          tsw_validfrom=ref_time,
         )
         create_entity!(w1)
         c = Contract()
@@ -208,6 +253,23 @@ CS_UNDO = Stack{Dict{String,Any}}()
         command = ""
         tab = ""
         tab = "contracts"
+      end
+
+      if command == "start transaction"
+        activetxn = true
+        w1 = Workflow(
+          type_of_entity="Contract",
+          ref_history=current_contract.ref_history,
+          tsw_validfrom=ref_time,
+        )
+        update_entity!(w1)
+        current_workflow = w1
+        cs = JSON.parse(JSON.json(LifeInsuranceDataModel.csection(current_contract.id.value, now(tz"UTC"), ref_time, activetxn ? 1 : 0)))
+        cs["loaded"] = "true"
+        push!(__model__)
+        @show command
+        command = ""
+
       end
 
       #if isnothing(cs["partner_refs"][idx+1]["rev"]["id"]["value"])
@@ -317,10 +379,7 @@ CS_UNDO = Stack{Dict{String,Any}}()
         current_workflow = Workflow()
         command = ""
       end
-      if command == "new contract"
-        @show command
-        command = ""
-      end
+
     catch err
       println("wassis shief gegangen ")
 
